@@ -1,8 +1,10 @@
 ﻿using Confluent.Kafka;
 using DaJet.Data.Messaging;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 
 namespace DaJet.Kafka
 {
@@ -30,15 +32,26 @@ namespace DaJet.Kafka
                 EnableIdempotence = false
             };
         }
+
+        private int _consumed;
+        private int _produced;
+        private string _error;
+        private IMessageConsumer _consumer;
+
         public int Produce(in IMessageConsumer consumer)
         {
-            int produced = 0;
-
+            int total = 0;
+            _error = null;
+            _consumer = consumer;
+            
             using (IProducer<Null, string> producer = new ProducerBuilder<Null, string>(_config).Build())
             {
                 do
                 {
-                    consumer.TxBegin();
+                    _consumer.TxBegin();
+
+                    _consumed = 0;
+                    _produced = 0;
 
                     foreach (OutgoingMessage message in consumer.Select())
                     {
@@ -46,18 +59,49 @@ namespace DaJet.Kafka
 
                         _message.Value = message.MessageBody;
 
-                        producer.Produce(_topic, _message);
+                        producer.Produce(_topic, _message, HandleDeliveryReport);
                     }
+                    _consumed = _consumer.RecordsAffected;
 
-                    producer.Flush();
-                    consumer.TxCommit();
+                    if (_consumed > 0)
+                    {
+                        producer.Flush(); // wait for confirms
 
-                    produced += consumer.RecordsAffected;
+                        if (_consumed == _produced)
+                        {
+                            _consumer.TxCommit();
+                            total += _consumed;
+                        }
+                        else
+                        {
+                            if (_error != null)
+                            {
+                                throw new Exception(_error);
+                            }
+                        }
+                    }
                 }
-                while (consumer.RecordsAffected > 0);
+                while (_consumer.RecordsAffected > 0);
             }
 
-            return produced;
+            _error = null;
+            _consumer = null;
+
+            return total;
+        }
+        private void HandleDeliveryReport(DeliveryReport<Null, string> report)
+        {
+            if (report.Status == PersistenceStatus.Persisted)
+            {
+                Interlocked.Increment(ref _produced);
+            }
+            else
+            {
+                if (report.Error != null && string.IsNullOrWhiteSpace(_error))
+                {
+                    _error = report.Error.Reason;
+                }
+            }
         }
         private void SetMessageHeaders(in OutgoingMessage message)
         {

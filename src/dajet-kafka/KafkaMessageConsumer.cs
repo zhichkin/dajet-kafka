@@ -9,7 +9,6 @@ namespace DaJet.Kafka
 {
     public sealed class KafkaMessageConsumer
     {
-        private readonly string _group;
         private readonly string _topic;
         private readonly string _server;
         private readonly string _client;
@@ -19,16 +18,15 @@ namespace DaJet.Kafka
         
         private int _batchSize = 1000;
 
-        public KafkaMessageConsumer(in string server, in string client, in string topic, in string group)
+        public KafkaMessageConsumer(in string server, in string topic, in string client)
         {
-            _group = group;
             _topic = topic;
             _server = server;
             _client = client;
 
             _config = new ConsumerConfig()
             {
-                GroupId = _group,
+                GroupId = _client,
                 ClientId = _client,
                 BootstrapServers = _server,
                 EnableAutoCommit = false,
@@ -96,7 +94,7 @@ namespace DaJet.Kafka
             _message.Sender = string.Empty;
             _message.Headers = string.Empty;
             _message.MessageType = string.Empty;
-            _message.OperationType = string.Empty;
+            _message.Version = string.Empty;
 
             SetDatabaseMessageHeaders();
 
@@ -139,9 +137,9 @@ namespace DaJet.Kafka
                 _message.MessageType = Encoding.UTF8.GetString(header.GetValueBytes());
                 return true;
             }
-            else if (header.Key == "OperationType")
+            else if (header.Key == "Version")
             {
-                _message.OperationType = Encoding.UTF8.GetString(header.GetValueBytes());
+                _message.Version = Encoding.UTF8.GetString(header.GetValueBytes());
                 return true;
             }
             
