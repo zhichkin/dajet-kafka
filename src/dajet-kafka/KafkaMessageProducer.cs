@@ -28,7 +28,7 @@ namespace DaJet.Kafka
                 BootstrapServers = _server,
                 Acks = Acks.All,
                 MaxInFlight = 1,
-                MessageTimeoutMs = 5000,
+                MessageTimeoutMs = 5000, // TODO: Timeout setting - 600 seconds !?
                 EnableIdempotence = false
             };
 
@@ -63,7 +63,7 @@ namespace DaJet.Kafka
                     }
                     _consumed = consumer.RecordsAffected;
 
-                    producer.Flush();
+                    producer.Flush(); // TODO: Timeout setting - 600 seconds !?
 
                     if (_produced == _consumed)
                     {
