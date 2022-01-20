@@ -28,11 +28,17 @@ namespace DaJet.Kafka.Agent
 
         public static void Main()
         {
+            string connectionString = MS_CONNECTION_STRING;
+            DatabaseProvider provider = DatabaseProvider.SQLServer;
+
+            //string connectionString = PG_CONNECTION_STRING;
+            //DatabaseProvider provider = DatabaseProvider.PostgreSQL;
+
             Console.WriteLine($"OS version: {Environment.OSVersion}");
 
             if (!new MetadataService()
-                .UseDatabaseProvider(DatabaseProvider.SQLServer)
-                .UseConnectionString(MS_CONNECTION_STRING)
+                .UseDatabaseProvider(provider)
+                .UseConnectionString(connectionString)
                 .TryOpenInfoBase(out InfoBase infoBase, out string message))
             {
                 Console.WriteLine(message);
@@ -41,7 +47,7 @@ namespace DaJet.Kafka.Agent
 
             _YearOffset = infoBase.YearOffset;
 
-            PublicationNode settings = GetPublicationSettings(DatabaseProvider.SQLServer, MS_CONNECTION_STRING);
+            PublicationNode settings = GetPublicationSettings(provider, in connectionString);
 
             KAFKA_CLIENT = settings.Code;
             KAFKA_TOPIC = settings.BrokerIncomingQueue;
@@ -49,19 +55,33 @@ namespace DaJet.Kafka.Agent
 
             _outgoingQueue = GetOutgoingQueueMetadata(infoBase, settings);
             ValidateOutgoingInterface(in _outgoingQueue);
-            ConfigureOutgoingQueue(in _outgoingQueue);
+            if (provider == DatabaseProvider.SQLServer)
+            {
+                ConfigureOutgoingQueue(_ms_configurator, in _outgoingQueue);
+            }
+            else
+            {
+                ConfigureOutgoingQueue(_pg_configurator, in _outgoingQueue);
+            }
 
             _incomingQueue = GetIncomingQueueMetadata(infoBase, settings);
             ValidateIncomingInterface(in _incomingQueue);
-            ConfigureIncomingQueue(in _incomingQueue);
+            if (provider == DatabaseProvider.SQLServer)
+            {
+                ConfigureIncomingQueue(_ms_configurator, in _incomingQueue);
+            }
+            else
+            {
+                ConfigureIncomingQueue(_pg_configurator, in _incomingQueue);
+            }
 
             try
             {
                 Stopwatch watch = new Stopwatch();
                 watch.Start();
                 
-                Produce();
-                //Consume();
+                Produce(provider, in connectionString);
+                //Consume(provider, in connectionString);
 
                 watch.Stop();
                 Console.WriteLine($"Elapsed = {watch.ElapsedMilliseconds} ms");
@@ -113,6 +133,45 @@ namespace DaJet.Kafka.Agent
             //}
         }
 
+        private static PublicationNode GetPublicationSettings(DatabaseProvider provider, in string connectionString)
+        {
+            if (!new MetadataService()
+                .UseDatabaseProvider(provider)
+                .UseConnectionString(connectionString)
+                .TryOpenInfoBase(out InfoBase infoBase, out string message))
+            {
+                throw new Exception(message);
+            }
+
+            _YearOffset = infoBase.YearOffset;
+
+            ApplicationObject metadata = infoBase.GetApplicationObjectByName(PUBLICATION_NAME);
+
+            Publication publication = metadata as Publication;
+            if (publication == null)
+            {
+                throw new Exception($"Publication \"{PUBLICATION_NAME}\" is not found.");
+            }
+
+            TablePart publications = publication.TableParts.Where(t => t.Name == "ИсходящиеСообщения").FirstOrDefault();
+            TablePart subscriptions = publication.TableParts.Where(t => t.Name == "ВходящиеСообщения").FirstOrDefault();
+
+            PublicationSettings settings = new PublicationSettings(provider, connectionString);
+            settings.Select(in publication);
+
+            PublicationNode node = settings.Select(in publication, publication.Publisher.Uuid);
+            if (publications != null)
+            {
+                node.Publications = settings.SelectNodePublications(publications, node.Uuid);
+            }
+            if (subscriptions != null)
+            {
+                node.Subscriptions = settings.SelectNodeSubscriptions(subscriptions, node.Uuid);
+            }
+
+            return node;
+        }
+
         private static ApplicationObject GetOutgoingQueueMetadata(InfoBase infoBase, PublicationNode settings)
         {
             string OUTGOING_QUEUE_NAME = $"РегистрСведений.{settings.NodeOutgoingQueue}";
@@ -135,9 +194,9 @@ namespace DaJet.Kafka.Agent
                 throw new Exception($"Outgoing queue interface is invalid.");
             }
         }
-        private static void ConfigureOutgoingQueue(in ApplicationObject queue)
+        private static void ConfigureOutgoingQueue(in IQueueConfigurator configurator, in ApplicationObject queue)
         {
-            _ms_configurator.ConfigureOutgoingMessageQueue(in queue, out List<string> errors);
+            configurator.ConfigureOutgoingMessageQueue(in queue, out List<string> errors);
 
             if (errors.Count > 0)
             {
@@ -174,9 +233,9 @@ namespace DaJet.Kafka.Agent
                 throw new Exception($"Incoming queue interface is invalid.");
             }
         }
-        private static void ConfigureIncomingQueue(in ApplicationObject queue)
+        private static void ConfigureIncomingQueue(in IQueueConfigurator configurator, in ApplicationObject queue)
         {
-            _ms_configurator.ConfigureIncomingMessageQueue(in queue, out List<string> errors);
+            configurator.ConfigureIncomingMessageQueue(in queue, out List<string> errors);
 
             if (errors.Count > 0)
             {
@@ -191,67 +250,47 @@ namespace DaJet.Kafka.Agent
             }
         }
 
-        private static void Produce()
+        private static void Produce(DatabaseProvider provider, in string connectionString)
         {
             int total = 0;
 
-            using (IMessageConsumer consumer = new MsMessageConsumer(MS_CONNECTION_STRING, in _outgoingQueue, _YearOffset))
+            if (provider == DatabaseProvider.SQLServer)
             {
-                total = new KafkaMessageProducer(KAFKA_SERVER, KAFKA_TOPIC, KAFKA_CLIENT).Produce(in consumer);
+                using (IMessageConsumer consumer = new MsMessageConsumer(connectionString, in _outgoingQueue, _YearOffset))
+                {
+                    total = new KafkaMessageProducer(KAFKA_SERVER, KAFKA_TOPIC, KAFKA_CLIENT).Produce(in consumer);
+                }
+            }
+            else
+            {
+                using (IMessageConsumer consumer = new PgMessageConsumer(connectionString, in _outgoingQueue, _YearOffset))
+                {
+                    total = new KafkaMessageProducer(KAFKA_SERVER, KAFKA_TOPIC, KAFKA_CLIENT).Produce(in consumer);
+                }
             }
 
             Console.WriteLine($"Total = {total}");
         }
-        private static void Consume()
+        private static void Consume(DatabaseProvider provider, in string connectionString)
         {
             int total = 0;
 
-            using (IMessageProducer producer = new MsMessageProducer(MS_CONNECTION_STRING, in _incomingQueue, _YearOffset))
+            if (provider == DatabaseProvider.SQLServer)
             {
-                total = new KafkaMessageConsumer(KAFKA_SERVER, KAFKA_TOPIC, KAFKA_CLIENT).Consume(in producer);
+                using (IMessageProducer producer = new MsMessageProducer(connectionString, in _incomingQueue, _YearOffset))
+                {
+                    total = new KafkaMessageConsumer(KAFKA_SERVER, KAFKA_TOPIC, KAFKA_CLIENT).Consume(in producer);
+                }
+            }
+            else
+            {
+                using (IMessageProducer producer = new PgMessageProducer(connectionString, in _incomingQueue, _YearOffset))
+                {
+                    total = new KafkaMessageConsumer(KAFKA_SERVER, KAFKA_TOPIC, KAFKA_CLIENT).Consume(in producer);
+                }
             }
 
             Console.WriteLine($"Total = {total}");
-        }
-
-
-        private static PublicationNode GetPublicationSettings(DatabaseProvider provider, in string connectionString)
-        {
-            if (!new MetadataService()
-                .UseDatabaseProvider(DatabaseProvider.SQLServer)
-                .UseConnectionString(MS_CONNECTION_STRING)
-                .TryOpenInfoBase(out InfoBase infoBase, out string message))
-            {
-                throw new Exception(message);
-            }
-
-            _YearOffset = infoBase.YearOffset;
-
-            ApplicationObject metadata = infoBase.GetApplicationObjectByName(PUBLICATION_NAME);
-
-            Publication publication = metadata as Publication;
-            if (publication == null)
-            {
-                throw new Exception($"Publication \"{PUBLICATION_NAME}\" is not found.");
-            }
-
-            TablePart publications = publication.TableParts.Where(t => t.Name == "ИсходящиеСообщения").FirstOrDefault();
-            TablePart subscriptions = publication.TableParts.Where(t => t.Name == "ВходящиеСообщения").FirstOrDefault();
-
-            PublicationSettings settings = new PublicationSettings(provider, connectionString);
-            settings.Select(in publication);
-
-            PublicationNode node = settings.Select(in publication, publication.Publisher.Uuid);
-            if (publications != null)
-            {
-                node.Publications = settings.SelectNodePublications(publications, node.Uuid);
-            }
-            if (subscriptions != null)
-            {
-                node.Subscriptions = settings.SelectNodeSubscriptions(subscriptions, node.Uuid);
-            }
-
-            return node;
         }
     }
 }
