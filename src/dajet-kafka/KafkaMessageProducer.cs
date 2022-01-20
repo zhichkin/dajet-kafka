@@ -31,27 +31,27 @@ namespace DaJet.Kafka
                 MessageTimeoutMs = 5000,
                 EnableIdempotence = false
             };
+
+            _deliveryReportHandler = new Action<DeliveryReport<Null, string>>(HandleDeliveryReport);
         }
 
         private int _consumed;
         private int _produced;
         private string _error;
-        private IMessageConsumer _consumer;
+        private Action<DeliveryReport<Null, string>> _deliveryReportHandler;
 
         public int Produce(in IMessageConsumer consumer)
         {
             int total = 0;
             _error = null;
-            _consumer = consumer;
             
             using (IProducer<Null, string> producer = new ProducerBuilder<Null, string>(_config).Build())
             {
                 do
                 {
-                    _consumer.TxBegin();
-
-                    _consumed = 0;
                     _produced = 0;
+
+                    consumer.TxBegin();
 
                     foreach (OutgoingMessage message in consumer.Select())
                     {
@@ -59,33 +59,30 @@ namespace DaJet.Kafka
 
                         _message.Value = message.MessageBody;
 
-                        producer.Produce(_topic, _message, HandleDeliveryReport);
+                        producer.Produce(_topic, _message, _deliveryReportHandler);
                     }
-                    _consumed = _consumer.RecordsAffected;
+                    _consumed = consumer.RecordsAffected;
 
-                    if (_consumed > 0)
+                    producer.Flush();
+
+                    if (_produced == _consumed)
                     {
-                        producer.Flush(); // wait for confirms
-
-                        if (_consumed == _produced)
+                        consumer.TxCommit();
+                        total += _consumed;
+                    }
+                    else
+                    {
+                        if (_error == null)
                         {
-                            _consumer.TxCommit();
-                            total += _consumed;
+                            _error = "_produced != _consumed";
                         }
-                        else
-                        {
-                            if (_error != null)
-                            {
-                                throw new Exception(_error);
-                            }
-                        }
+                        throw new Exception(_error);
                     }
                 }
-                while (_consumer.RecordsAffected > 0);
+                while (consumer.RecordsAffected > 0);
             }
 
             _error = null;
-            _consumer = null;
 
             return total;
         }
