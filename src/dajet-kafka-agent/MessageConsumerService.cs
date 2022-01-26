@@ -11,6 +11,7 @@ namespace DaJet.Kafka.Agent
 {
     public sealed class MessageConsumerService : BackgroundService
     {
+        private const string DELAY_MESSAGE_TEMPLATE = "Message consumer service delay for {0} seconds.";
         private const string RETRY_MESSAGE_TEMPLATE = "Message consumer service will retry in {0} seconds.";
         private AppSettings Settings { get; set; }
         public MessageConsumerService(IOptions<AppSettings> options)
@@ -49,6 +50,7 @@ namespace DaJet.Kafka.Agent
                 {
                     FileLogger.LogException(error);
                 }
+                FileLogger.Log(string.Format(DELAY_MESSAGE_TEMPLATE, Settings.Periodicity));
                 await Task.Delay(TimeSpan.FromSeconds(Settings.Periodicity), cancellationToken);
             }
         }
@@ -60,10 +62,10 @@ namespace DaJet.Kafka.Agent
 
             using (IMessageProducer producer = GetDatabaseMessageProducer(in settings))
             {
-                // TODO: create consumer for each topic ?
+                // TODO: create consumer for each topic (subscription setting) !?
                 consumed = new KafkaMessageConsumer(
                     settings.MainNode.BrokerServer,
-                    settings.MainNode.BrokerOutgoingQueue, // TODO: get topic from settings
+                    settings.MainNode.BrokerOutgoingQueue,
                     settings.MainNode.Code)
                     .Consume(in producer);
             }

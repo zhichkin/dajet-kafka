@@ -9,13 +9,15 @@ namespace DaJet.Kafka.Agent
     {
         public static void Main()
         {
+            FileLogger.UseFileName("dajet-kafka-agent");
+
             FileLogger.Log("Hosting service is started.");
             CreateHostBuilder().Build().Run();
             FileLogger.Log("Hosting service is stopped.");
         }
         private static IHostBuilder CreateHostBuilder()
         {
-            IHostBuilder builder = Host.CreateDefaultBuilder()
+            return Host.CreateDefaultBuilder()
                 .UseSystemd()
                 .UseWindowsService()
                 .ConfigureAppConfiguration(config =>
@@ -24,8 +26,6 @@ namespace DaJet.Kafka.Agent
                     config.AddJsonFile("appsettings.json", optional: false);
                 })
                 .ConfigureServices(ConfigureServices);
-
-            return builder;
         }
         private static void ConfigureServices(HostBuilderContext context, IServiceCollection services)
         {

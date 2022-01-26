@@ -4,6 +4,7 @@ using DaJet.Metadata;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -11,6 +12,7 @@ namespace DaJet.Kafka.Agent
 {
     public sealed class MessageProducerService : BackgroundService
     {
+        private const string DELAY_MESSAGE_TEMPLATE = "Message producer service delay for {0} seconds.";
         private const string RETRY_MESSAGE_TEMPLATE = "Message producer service will retry in {0} seconds.";
         private AppSettings Settings { get; set; }
         public MessageProducerService(IOptions<AppSettings> options)
@@ -49,12 +51,15 @@ namespace DaJet.Kafka.Agent
                 {
                     FileLogger.LogException(error);
                 }
+                FileLogger.Log(string.Format(DELAY_MESSAGE_TEMPLATE, Settings.Periodicity));
                 await Task.Delay(TimeSpan.FromSeconds(Settings.Periodicity), cancellationToken);
             }
         }
         private void TryDoWork(CancellationToken cancellationToken)
         {
             GetMessagingSettingsWithRetry(out MessagingSettings settings, cancellationToken);
+
+            ConfigureMessageTypeToTopicLookup(in settings, out Dictionary<string, string> lookup);
 
             int produced = 0;
 
@@ -64,7 +69,7 @@ namespace DaJet.Kafka.Agent
                     settings.MainNode.BrokerServer,
                     settings.MainNode.BrokerIncomingQueue,
                     settings.MainNode.Code)
-                    .Produce(in consumer); // TODO: get topic from settings !
+                    .Produce(in consumer, in lookup);
             }
 
             FileLogger.Log($"{produced} messages produced.");
@@ -102,43 +107,14 @@ namespace DaJet.Kafka.Agent
                 Task.Delay(TimeSpan.FromSeconds(Settings.Periodicity), cancellationToken).Wait();
             }
         }
-
-        // FIXME: broker login and password ?
-        private string ParseMessageBrokerUri(string uriString)
+        private void ConfigureMessageTypeToTopicLookup(in MessagingSettings settings, out Dictionary<string, string> lookup)
         {
-            // amqp://guest:guest@localhost:5672/%2F/РИБ.ERP
+            lookup = new Dictionary<string, string>();
 
-            Uri uri = new Uri(uriString);
-
-            if (uri.Scheme != "kafka")
+            foreach (NodePublication publication in settings.MainNode.Publications)
             {
-                throw new FormatException(nameof(uriString));
+                lookup.TryAdd(publication.MessageType, publication.BrokerQueue);
             }
-
-            return $"{uri.Host}:{uri.Port}";
-
-            //HostName = uri.Host;
-            //HostPort = uri.Port;
-
-            //string[] userpass = uri.UserInfo.Split(':');
-            //if (userpass != null && userpass.Length == 2)
-            //{
-            //    UserName = HttpUtility.UrlDecode(userpass[0], Encoding.UTF8);
-            //    Password = HttpUtility.UrlDecode(userpass[1], Encoding.UTF8);
-            //}
-
-            //if (uri.Segments != null && uri.Segments.Length == 3)
-            //{
-            //    if (uri.Segments.Length > 1)
-            //    {
-            //        VirtualHost = HttpUtility.UrlDecode(uri.Segments[1].TrimEnd('/'), Encoding.UTF8);
-            //    }
-
-            //    if (uri.Segments.Length == 3)
-            //    {
-            //        ExchangeName = HttpUtility.UrlDecode(uri.Segments[2].TrimEnd('/'), Encoding.UTF8);
-            //    }
-            //}
         }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using Confluent.Kafka;
 using DaJet.Data.Messaging;
+using DaJet.Logging;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -34,12 +35,22 @@ namespace DaJet.Kafka
                 SessionTimeoutMs = 60000,
                 HeartbeatIntervalMs = 20000
             };
+
+            _errorHandler = new Action<IConsumer<Ignore, string>, Error>(ErrorHandler);
+            _logHandler = new Action<IConsumer<Ignore, string>, LogMessage>(LogHandler);
         }
+
+        private Action<IConsumer<Ignore, string>, Error> _errorHandler;
+        private Action<IConsumer<Ignore, string>, LogMessage> _logHandler;
+
         public int Consume(in IMessageProducer producer)
         {
             int total = 0;
             
-            using (IConsumer<Ignore, string> consumer = new ConsumerBuilder<Ignore, string>(_config).Build())
+            using (IConsumer<Ignore, string> consumer = new ConsumerBuilder<Ignore, string>(_config)
+                .SetLogHandler(_logHandler)
+                .SetErrorHandler(_errorHandler)
+                .Build())
             {
                 int consumed = 0;
 
@@ -55,6 +66,14 @@ namespace DaJet.Kafka
             }
 
             return total;
+        }
+        private void LogHandler(IConsumer<Ignore, string> _, LogMessage message)
+        {
+            FileLogger.Log($"Consumer info [{message.Name}]: " + message.Message);
+        }
+        private void ErrorHandler(IConsumer<Ignore, string> consumer, Error error)
+        {
+            FileLogger.Log($"Consumer error [{consumer.Name}] ({string.Concat(consumer.Subscription)}): " + error.Reason);
         }
         private int ConsumeBatch(in IConsumer<Ignore, string> consumer, in IMessageProducer producer)
         {
