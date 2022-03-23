@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using V1 = DaJet.Data.Messaging.V1;
 
 namespace DaJet.Kafka
 {
@@ -61,7 +62,7 @@ namespace DaJet.Kafka
 
                     consumer.TxBegin();
 
-                    foreach (OutgoingMessage message in consumer.Select())
+                    foreach (V1.OutgoingMessage message in consumer.Select())
                     {
                         SetMessageHeaders(in message);
 
@@ -123,7 +124,7 @@ namespace DaJet.Kafka
                 }
             }
         }
-        private void SetMessageHeaders(in OutgoingMessage message)
+        private void SetMessageHeaders(in V1.OutgoingMessage message)
         {
             _message.Headers = null;
 

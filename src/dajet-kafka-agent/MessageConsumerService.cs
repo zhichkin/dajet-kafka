@@ -76,11 +76,11 @@ namespace DaJet.Kafka.Agent
         {
             if (Settings.DatabaseProvider == DatabaseProvider.SQLServer)
             {
-                return new MsMessageProducer(Settings.ConnectionString, settings.IncomingQueue, settings.YearOffset);
+                return new MsMessageProducer(Settings.ConnectionString, settings.IncomingQueue);
             }
             else
             {
-                return new PgMessageProducer(Settings.ConnectionString, settings.IncomingQueue, settings.YearOffset);
+                return new PgMessageProducer(Settings.ConnectionString, settings.IncomingQueue);
             }
         }
         private void GetMessagingSettingsWithRetry(out MessagingSettings settings, CancellationToken cancellationToken)

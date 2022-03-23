@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
+using V1 = DaJet.Data.Messaging.V1;
 
 namespace DaJet.Kafka
 {
@@ -15,7 +16,7 @@ namespace DaJet.Kafka
         private readonly string _client;
         private readonly ConsumerConfig _config;
         private ConsumeResult<Ignore, string> _result;
-        private readonly IncomingMessage _message = new IncomingMessage();
+        private readonly V1.IncomingMessage _message = new V1.IncomingMessage();
         
         private int _batchSize = 1000;
 
@@ -89,7 +90,7 @@ namespace DaJet.Kafka
                 {
                     ProduceDatabaseMessage();
 
-                    producer.Insert(in _message);
+                    producer.Insert(_message);
 
                     consumed++;
                 }
@@ -113,7 +114,6 @@ namespace DaJet.Kafka
             _message.Sender = string.Empty;
             _message.Headers = string.Empty;
             _message.MessageType = string.Empty;
-            _message.Version = string.Empty;
 
             SetDatabaseMessageHeaders();
 
@@ -154,11 +154,6 @@ namespace DaJet.Kafka
             else if (header.Key == "MessageType")
             {
                 _message.MessageType = Encoding.UTF8.GetString(header.GetValueBytes());
-                return true;
-            }
-            else if (header.Key == "Version")
-            {
-                _message.Version = Encoding.UTF8.GetString(header.GetValueBytes());
                 return true;
             }
             
